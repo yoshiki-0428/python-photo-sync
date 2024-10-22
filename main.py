@@ -5,10 +5,9 @@ from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 
-
 # 認証スコープ
-SCOPES = ['https://www.googleapis.com/auth/photoslibrary.readonly',
-          'https://www.googleapis.com/auth.photoslibrary']
+SCOPES = ['https://www.googleapis.com/auth/photoslibrary.readonly']
+
 
 # 認証を行い、Google Photos APIにアクセスできるようにする
 def authenticate_google_photos():
@@ -36,17 +35,25 @@ def authenticate_google_photos():
 
 
 def download_video(media_item, download_path):
+    # 動画ファイル名
+    file_name = os.path.join(download_path, media_item['filename'])
+
+    # ファイルがすでに存在している場合はスキップ
+    if os.path.exists(file_name):
+        print(f"File already exists, skipping: {media_item['filename']}")
+        return False  # ダウンロードしなかったことを示す
+
     # 動画のURLを取得しダウンロード
     download_url = media_item['baseUrl'] + "=dv"
     response = requests.get(download_url, stream=True)
 
     # ファイルの保存
-    file_name = os.path.join(download_path, media_item['filename'])
     with open(file_name, 'wb') as f:
         for chunk in response.iter_content(chunk_size=8192):
             f.write(chunk)
-    print(f"Downloaded: {media_item['filename']}")
 
+    print(f"Downloaded: {media_item['filename']}")
+    return True  # ダウンロードが成功したことを示す
 
 
 def main():
@@ -58,14 +65,15 @@ def main():
 
     next_page_token = None
     total_downloaded = 0
-    total_deleted = 0
+    skipped_files = 0
 
     print("Starting video download...")
 
-    # 動画の取得とダウンロード、削除の繰り返し
+    # 動画の取得とダウンロードの繰り返し
     while True:
         results = service.mediaItems().search(
-            body={"pageSize": 100, "pageToken": next_page_token, "filters": {"mediaTypeFilter": {"mediaTypes": ["VIDEO"]}}}
+            body={"pageSize": 100, "pageToken": next_page_token,
+                  "filters": {"mediaTypeFilter": {"mediaTypes": ["VIDEO"]}}}
         ).execute()
 
         items = results.get('mediaItems', [])
@@ -74,15 +82,17 @@ def main():
             break
 
         for item in items:
-            download_video(item, download_path)
-            total_downloaded += 1
-            print(f"Progress: {total_downloaded} videos downloaded")
+            if download_video(item, download_path):
+                total_downloaded += 1
+            else:
+                skipped_files += 1
+            print(f"Progress: {total_downloaded} videos downloaded, {skipped_files} files skipped")
 
         next_page_token = results.get('nextPageToken')
         if not next_page_token:
             break
 
-    print(f"Process completed. Total videos downloaded: {total_downloaded}, Total videos deleted: {total_deleted}")
+    print(f"Process completed. Total videos downloaded: {total_downloaded}, Files skipped: {skipped_files}")
 
 
 if __name__ == '__main__':
